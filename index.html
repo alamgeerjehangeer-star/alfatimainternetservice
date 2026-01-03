@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Al-Fatima Internet Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #ffffff; color: #000; }
+        .card-border { border: 2px solid #f0f0f0; transition: all 0.2s; }
+        .card-border:hover { border-color: #000; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .date-badge { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; font-size: 11px; font-weight: 700; }
+        @media print { body * { visibility: hidden; } #print-area, #print-area * { visibility: visible; } #print-area { position: absolute; left: 0; top: 0; width: 100%; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBe-YOUR-KEY",
+            authDomain: "al-fatima-internet-invoice.firebaseapp.com",
+            databaseURL: "https://al-fatima-internet-invoice-default-rtdb.firebaseio.com",
+            projectId: "al-fatima-internet-invoice",
+            storageBucket: "al-fatima-internet-invoice.appspot.com",
+            messagingSenderId: "673631409088",
+            appId: "1:673631409088:web:7289668d2279165798e404"
+        };
+
+        const PACKAGE_RATES = {
+            "17MB": 1200, "24MB": 1400, "28MB": 1600, "33MB": 1800, "45MB": 2000, "60MB": 2500, "100MB": 3500
+        };
+
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        function App() {
+            const [users, setUsers] = useState([]);
+            const [searchTerm, setSearchTerm] = useState("");
+            const [showModal, setShowModal] = useState(false);
+            const [isEditing, setIsEditing] = useState(null);
+            const [selectedUser, setSelectedUser] = useState(null);
+            const [newUser, setNewUser] = useState({ 
+                name: '', userId: '', phone: '', mb: '17MB', package: 1200, 
+                prevBalance: 0, received: 0,
+                activationDate: new Date().toISOString().split('T')[0],
+                receivingDate: new Date().toISOString().split('T')[0]
+            });
+
+            const ADMIN_PASSWORD = "admin123";
+
+            useEffect(() => {
+                db.ref('users').on('value', snap => {
+                    const data = snap.val();
+                    setUsers(data ? Object.keys(data).map(k => ({id: k, ...data[k]})) : []);
+                });
+            }, []);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                // Calculation Fix:
+                const totalBill = Number(newUser.package) + Number(newUser.prevBalance);
+                const balance = totalBill - Number(newUser.received);
+                
+                const finalData = { ...newUser, balance };
+                if (isEditing) db.ref('users/' + isEditing).set(finalData);
+                else db.ref('users').push(finalData);
+                
+                setShowModal(false);
+                setIsEditing(null);
+                resetForm();
+            };
+
+            const resetForm = () => {
+                setNewUser({ name: '', userId: '', phone: '', mb: '17MB', package: 1200, prevBalance: 0, received: 0, activationDate: new Date().toISOString().split('T')[0], receivingDate: new Date().toISOString().split('T')[0] });
+            };
+
+            // Professional Detailed WhatsApp Message
+            const sendWhatsApp = (u) => {
+                const msg = `*Al-Fatima Internet Service*%0A%0A` +
+                            `*Name:* ${u.name}%0A` +
+                            `*User ID:* ${u.userId}%0A` +
+                            `*Package:* ${u.mb}%0A` +
+                            `*Old Arrears:* Rs. ${u.prevBalance}%0A` +
+                            `*Received:* Rs. ${u.received}%0A` +
+                            `*Total Balance:* Rs. ${u.balance}%0A%0A` +
+                            `_Thank you for choosing Al-Fatima Internet Service_`;
+                window.open(`https://wa.me/${u.phone}?text=${msg}`, '_blank');
+            };
+
+            const exportToExcel = () => {
+                const data = users.map(u => ({ 'Name': u.name, 'ID': u.userId, 'Phone': u.phone, 'Pkg': u.mb, 'Rate': u.package, 'Arrears': u.prevBalance, 'Received': u.received, 'Due': u.balance }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Records");
+                XLSX.writeFile(wb, "AlFatima_Report.xlsx");
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto px-4 py-6">
+                    {/* Top Bar */}
+                    <div className="flex justify-between items-center mb-8 pb-4 border-b-4 border-black no-print">
+                        <h1 className="text-xl md:text-3xl font-black italic uppercase">AL FATIMA INTERNET SERVICE</h1>
+                        <div className="flex gap-2">
+                            <button onClick={exportToExcel} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-[10px] font-bold uppercase">Excel</button>
+                            <button onClick={() => { resetForm(); setIsEditing(null); setShowModal(true); }} className="bg-black text-white px-3 py-2 rounded-lg text-[10px] font-bold uppercase">+ Add</button>
+                        </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-10 no-print">
+                        <div className="bg-white p-4 rounded-xl border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                            <p className="text-[9px] font-bold uppercase mb-1">Total Recovery</p>
+                            <h2 className="text-xl font-black text-emerald-600">Rs. {users.reduce((s,u) => s + Number(u.received), 0)}</h2>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl border-2 border-black shadow-[3px_3px_0px_0px_rgba(220,38,38,1)]">
+                            <p className="text-[9px] font-bold uppercase mb-1 text-red-600">Total Due</p>
+                            <h2 className="text-xl font-black text-red-600">Rs. {users.reduce((s,u) => s + Number(u.balance), 0)}</h2>
+                        </div>
+                        <input onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search Name or ID..." className="col-span-2 md:col-span-1 border-b-2 border-black outline-none p-2 font-bold uppercase"/>
+                    </div>
+
+                    {/* Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 no-print">
+                        {users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()) || u.userId.toLowerCase().includes(searchTerm.toLowerCase())).map(u => (
+                            <div key={u.id} className="bg-white rounded-[2rem] p-6 card-border">
+                                <div className="flex justify-between mb-4">
+                                    <div>
+                                        <h3 className="text-lg font-black uppercase leading-tight">{u.name}</h3>
+                                        <span className="bg-black text-white px-2 py-0.5 rounded text-[10px] font-bold mt-1 inline-block">ID: {u.userId}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-gray-400">
+                                        <button onClick={() => { setSelectedUser(u); setTimeout(() => window.print(), 300); }}>🖨️</button>
+                                        <button onClick={() => { if(prompt("Password:") === ADMIN_PASSWORD) { setNewUser(u); setIsEditing(u.id); setShowModal(true); } }}>✎</button>
+                                        <button onClick={() => { if(prompt("Password:") === ADMIN_PASSWORD) db.ref('users/'+u.id).remove(); }} className="text-red-300 hover:text-red-600 text-xl">×</button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                    <div className="date-badge"><span className="text-[8px] text-gray-400 block uppercase">Activation</span>{u.activationDate}</div>
+                                    <div className="date-badge"><span className="text-[8px] text-gray-400 block uppercase">Last Paid</span>{u.receivingDate}</div>
+                                </div>
+
+                                <div className="bg-gray-50 p-4 rounded-2xl space-y-1 mb-4 text-sm">
+                                    <div className="flex justify-between border-b pb-1"><span>Package ({u.mb}):</span> <b>Rs. {u.package}</b></div>
+                                    <div className="flex justify-between border-b pb-1"><span>Old Arrears:</span> <b className="text-orange-600">Rs. {u.prevBalance}</b></div>
+                                    <div className="flex justify-between border-b pb-1 font-bold text-emerald-600"><span>Received:</span> <span>Rs. {u.received}</span></div>
+                                    <div className="flex justify-between pt-1 font-black">
+                                        <span>Total Balance:</span> 
+                                        <span className={u.balance < 0 ? "text-blue-600" : u.balance === 0 ? "text-emerald-600" : "text-red-600"}>
+                                            Rs. {u.balance}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <button onClick={() => sendWhatsApp(u)} className="w-full bg-black text-white py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-all">
+                                    Send WhatsApp Bill
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Print Template Hidden Area */}
+                    {selectedUser && (
+                        <div id="print-area" className="hidden p-10 border-4 border-black">
+                            <h1 className="text-3xl font-black text-center mb-8 uppercase italic underline">AL-FATIMA INTERNET SERVICE</h1>
+                            <div className="grid grid-cols-2 gap-10 mb-8 text-lg">
+                                <div>
+                                    <p><b>Name:</b> {selectedUser.name}</p>
+                                    <p><b>User ID:</b> {selectedUser.userId}</p>
+                                    <p><b>Package:</b> {selectedUser.mb}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p><b>Date:</b> {selectedUser.receivingDate}</p>
+                                </div>
+                            </div>
+                            <div className="border-y-2 border-black py-6 space-y-3 text-xl">
+                                <div className="flex justify-between"><span>Package Rate:</span> <span>Rs. {selectedUser.package}</span></div>
+                                <div className="flex justify-between"><span>Old Arrears:</span> <span>Rs. {selectedUser.prevBalance}</span></div>
+                                <div className="flex justify-between text-emerald-700 font-bold"><span>Total Received:</span> <span>- Rs. {selectedUser.received}</span></div>
+                                <div className="flex justify-between border-t-2 border-black pt-4 font-black text-2xl"><span>Net Balance:</span> <span>Rs. {selectedUser.balance}</span></div>
+                            </div>
+                            <p className="mt-12 text-center italic font-bold">Thank you for choosing Al-Fatima Internet Service</p>
+                        </div>
+                    )}
+
+                    {/* Modal */}
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-md rounded-[2rem] p-8 shadow-2xl">
+                                <h2 className="text-xl font-black mb-6 uppercase border-b-2 pb-2 italic">{isEditing ? 'Edit' : 'New'} Record</h2>
+                                <form onSubmit={handleSubmit} className="space-y-4">
+                                    <input required value={newUser.name} placeholder="Name" className="w-full p-4 bg-gray-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-black" onChange={e => setNewUser({...newUser, name: e.target.value})}/>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input required value={newUser.userId} placeholder="User ID" className="w-full p-4 bg-gray-50 rounded-xl outline-none" onChange={e => setNewUser({...newUser, userId: e.target.value})}/>
+                                        <input value={newUser.phone} placeholder="WhatsApp (92...)" className="w-full p-4 bg-gray-50 rounded-xl outline-none" onChange={e => setNewUser({...newUser, phone: e.target.value})}/>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <select value={newUser.mb} className="w-full p-4 bg-gray-50 rounded-xl font-bold outline-none" onChange={(e) => setNewUser({...newUser, mb: e.target.value, package: PACKAGE_RATES[e.target.value]})}>
+                                            {Object.keys(PACKAGE_RATES).map(mb => <option key={mb} value={mb}>{mb}</option>)}
+                                        </select>
+                                        <input type="number" value={newUser.prevBalance} placeholder="Old Arrears" className="w-full p-4 bg-orange-50 rounded-xl font-black text-orange-600 outline-none" onChange={e => setNewUser({...newUser, prevBalance: e.target.value})}/>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="date" value={newUser.activationDate} className="p-4 bg-gray-50 rounded-xl text-[10px]" onChange={e => setNewUser({...newUser, activationDate: e.target.value})}/>
+                                        <input type="date" value={newUser.receivingDate} className="p-4 bg-gray-50 rounded-xl text-[10px]" onChange={e => setNewUser({...newUser, receivingDate: e.target.value})}/>
+                                    </div>
+                                    <input required type="number" value={newUser.received} className="w-full p-4 bg-emerald-50 rounded-xl text-2xl font-black text-center text-emerald-700 outline-none" placeholder="Cash Received" onChange={e => setNewUser({...newUser, received: e.target.value})}/>
+                                    <button className="w-full bg-black text-white p-5 rounded-xl font-bold uppercase shadow-lg hover:bg-gray-800 transition-all">Save Record</button>
+                                    <button type="button" onClick={() => setShowModal(false)} className="w-full text-gray-400 text-[10px] mt-2 font-bold uppercase tracking-widest">Discard</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
