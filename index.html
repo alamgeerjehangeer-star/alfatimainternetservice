@@ -17,6 +17,8 @@
         .card-border { border: 2px solid #f0f0f0; transition: all 0.2s; }
         .card-border:hover { border-color: #000; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
         .date-badge { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; font-size: 11px; font-weight: 700; }
+        .history-timeline { max-height: 300px; overflow-y: auto; }
+        .history-item { border-left: 3px solid #e5e7eb; padding-left: 12px; margin-bottom: 12px; }
         @media print { body * { visibility: hidden; } #print-area, #print-area * { visibility: visible; } #print-area { position: absolute; left: 0; top: 0; width: 100%; } }
     </style>
 </head>
@@ -47,6 +49,7 @@
             const [users, setUsers] = useState([]);
             const [searchTerm, setSearchTerm] = useState("");
             const [showModal, setShowModal] = useState(false);
+            const [showHistory, setShowHistory] = useState(null);
             const [isEditing, setIsEditing] = useState(null);
             const [selectedUser, setSelectedUser] = useState(null);
             const [newUser, setNewUser] = useState({ 
@@ -67,13 +70,45 @@
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                // Calculation Fix:
-                const totalBill = Number(newUser.package) + Number(newUser.prevBalance);
+                
+                let prevBalanceToUse = Number(newUser.prevBalance);
+                
+                // Agar edit kar rahe hain toh last balance use karo
+                if (isEditing) {
+                    const existingUser = users.find(u => u.id === isEditing);
+                    if (existingUser && existingUser.balance !== undefined) {
+                        prevBalanceToUse = Number(existingUser.balance);
+                    }
+                }
+                
+                const totalBill = Number(newUser.package) + prevBalanceToUse;
                 const balance = totalBill - Number(newUser.received);
                 
-                const finalData = { ...newUser, balance };
-                if (isEditing) db.ref('users/' + isEditing).set(finalData);
-                else db.ref('users').push(finalData);
+                // Payment history entry banate hain
+                const historyEntry = {
+                    date: newUser.receivingDate,
+                    activationDate: newUser.activationDate,
+                    month: new Date(newUser.receivingDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+                    packageRate: Number(newUser.package),
+                    prevBalance: prevBalanceToUse,
+                    received: Number(newUser.received),
+                    balance: balance,
+                    mb: newUser.mb
+                };
+                
+                let finalData = { ...newUser, balance, prevBalance: prevBalanceToUse };
+                
+                if (isEditing) {
+                    // Existing user update - history mein add karo
+                    const existingUser = users.find(u => u.id === isEditing);
+                    const paymentHistory = existingUser.paymentHistory || [];
+                    finalData.paymentHistory = [...paymentHistory, historyEntry];
+                    db.ref('users/' + isEditing).set(finalData);
+                } else {
+                    // New user - pehli entry
+                    finalData.paymentHistory = [historyEntry];
+                    db.ref('users').push(finalData);
+                }
                 
                 setShowModal(false);
                 setIsEditing(null);
@@ -84,7 +119,6 @@
                 setNewUser({ name: '', userId: '', phone: '', mb: '17MB', package: 1200, prevBalance: 0, received: 0, activationDate: new Date().toISOString().split('T')[0], receivingDate: new Date().toISOString().split('T')[0] });
             };
 
-            // Professional Detailed WhatsApp Message
             const sendWhatsApp = (u) => {
                 const msg = `*Al-Fatima Internet Service*%0A%0A` +
                             `*Name:* ${u.name}%0A` +
@@ -103,6 +137,40 @@
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Records");
                 XLSX.writeFile(wb, "AlFatima_Report.xlsx");
+            };
+
+            const deleteHistoryEntry = (userId, entryIndex) => {
+                if (prompt("Password:") !== ADMIN_PASSWORD) {
+                    alert("Wrong Password!");
+                    return;
+                }
+                
+                const user = users.find(u => u.id === userId);
+                if (!user || !user.paymentHistory) return;
+                
+                const updatedHistory = user.paymentHistory.filter((_, i) => i !== entryIndex);
+                
+                // Agar last entry delete ho rahi hai toh user ki current details update karo
+                if (updatedHistory.length > 0) {
+                    const lastEntry = updatedHistory[updatedHistory.length - 1];
+                    db.ref('users/' + userId).update({
+                        paymentHistory: updatedHistory,
+                        balance: lastEntry.balance,
+                        prevBalance: lastEntry.prevBalance,
+                        received: lastEntry.received,
+                        package: lastEntry.packageRate,
+                        mb: lastEntry.mb,
+                        receivingDate: lastEntry.date,
+                        activationDate: lastEntry.activationDate
+                    });
+                } else {
+                    // Agar sari history delete ho gayi toh user ko bhi delete kar do
+                    if (confirm("All history will be deleted. Delete user too?")) {
+                        db.ref('users/' + userId).remove();
+                    } else {
+                        db.ref('users/' + userId).update({ paymentHistory: [] });
+                    }
+                }
             };
 
             return (
@@ -140,7 +208,16 @@
                                     </div>
                                     <div className="flex gap-2 text-gray-400">
                                         <button onClick={() => { setSelectedUser(u); setTimeout(() => window.print(), 300); }}>🖨️</button>
-                                        <button onClick={() => { if(prompt("Password:") === ADMIN_PASSWORD) { setNewUser(u); setIsEditing(u.id); setShowModal(true); } }}>✎</button>
+                                        <button onClick={() => { if(prompt("Password:") === ADMIN_PASSWORD) { 
+                                            const userToEdit = users.find(usr => usr.id === u.id);
+                                            // Current balance ko prevBalance field mein dikhao (edit mode mein)
+                                            setNewUser({
+                                                ...userToEdit,
+                                                prevBalance: userToEdit.balance || 0
+                                            }); 
+                                            setIsEditing(u.id); 
+                                            setShowModal(true); 
+                                        } }}>✎</button>
                                         <button onClick={() => { if(prompt("Password:") === ADMIN_PASSWORD) db.ref('users/'+u.id).remove(); }} className="text-red-300 hover:text-red-600 text-xl">×</button>
                                     </div>
                                 </div>
@@ -161,6 +238,42 @@
                                         </span>
                                     </div>
                                 </div>
+
+                                {/* History Button - Chhota aur subtle */}
+                                {u.paymentHistory && u.paymentHistory.length > 0 && (
+                                    <button onClick={() => setShowHistory(showHistory === u.id ? null : u.id)} className="w-full mb-2 text-gray-400 hover:text-black text-[9px] font-bold uppercase tracking-widest transition-all">
+                                        {showHistory === u.id ? '▲ Hide History' : '▼ View History'}
+                                    </button>
+                                )}
+
+                                {/* Payment History Timeline */}
+                                {showHistory === u.id && u.paymentHistory && (
+                                    <div className="bg-gray-50 p-4 rounded-xl mb-4 history-timeline">
+                                        <h4 className="text-[9px] font-black uppercase mb-3 text-gray-500">Payment History</h4>
+                                        {u.paymentHistory.slice().reverse().map((h, i) => {
+                                            const actualIndex = u.paymentHistory.length - 1 - i;
+                                            return (
+                                            <div key={i} className="history-item relative">
+                                                <button 
+                                                    onClick={() => deleteHistoryEntry(u.id, actualIndex)}
+                                                    className="absolute -right-2 -top-1 text-red-400 hover:text-red-600 text-lg font-bold"
+                                                    title="Delete this entry"
+                                                >×</button>
+                                                <p className="text-[10px] font-black text-gray-700">{h.month}</p>
+                                                <div className="flex gap-2 text-[8px] text-gray-500 mb-1">
+                                                    <span>💰 Paid: {h.date}</span>
+                                                    <span>• ✅ Activated: {h.activationDate}</span>
+                                                </div>
+                                                <div className="text-[9px] mt-1 space-y-0.5">
+                                                    <div className="flex justify-between"><span>Package ({h.mb}):</span> <b>Rs. {h.packageRate}</b></div>
+                                                    <div className="flex justify-between"><span>Arrears:</span> <b className="text-orange-600">Rs. {h.prevBalance}</b></div>
+                                                    <div className="flex justify-between text-emerald-600 font-bold"><span>Received:</span> <span>Rs. {h.received}</span></div>
+                                                    <div className="flex justify-between font-black"><span>Balance:</span> <span className={h.balance < 0 ? "text-blue-600" : h.balance === 0 ? "text-emerald-600" : "text-red-600"}>Rs. {h.balance}</span></div>
+                                                </div>
+                                            </div>
+                                        )})}
+                                    </div>
+                                )}
 
                                 <button onClick={() => sendWhatsApp(u)} className="w-full bg-black text-white py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-all">
                                     Send WhatsApp Bill
